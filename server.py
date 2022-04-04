@@ -7,12 +7,13 @@ import os
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import random
+from cryptography.fernet import Fernet
 
 app = Flask(__name__, static_folder='client/build')
 limiter = Limiter(app, key_func=get_remote_address)
 
 def Hash (string):
-    return hashlib.sha256(string).hexdigest()
+    return hashlib.sha256(bytes(string, "utf-8")).hexdigest()
 
 
 def get_password (username):
@@ -35,11 +36,30 @@ def get_snackpass_receipt_id (username, total):
     # Different id each time but verifiable that the total was 0
     return iv + Hash(iv + Hash(username) + Hash(total))
 
-def get_bereal_friend_id (username, id):
-    userint = int(Hash(Hash("Satyameva Jayate") + Hash(username))[:4],16)
+with open("mp.json","r") as f:
+    friend_map = json.load(f)["map"]
+
+with open("fernet_key.txt","rb") as f:
+    fernet = Fernet(f.read())
+
+base = Hash("Satyameva Jayate")
+
+def get_bereal_i_to_id (username, i):
+    userint = int(Hash(base + Hash(username))[:4],16)
     # Only 0 is same for every user, can tell them to find a specific id corresponding to 0 in spec
-    # Every other index depends on username
-    return Hash(Hash("Satyameva Jayate") + Hash(str(userint * id)))
+    # Every other index depends on username (multiplied by some deterministic "userint")
+    num = bytes(str(int(base[:4],16) + userint * i), "utf-8")
+    return f.encrypt().decode()
+
+def get_bereal_id_to_i (username, id):
+    userint = int(Hash(base + Hash(username))[:4],16)
+    try:
+        num = int(f.decrypt(id))
+    except:
+        return -1
+    
+    i = (num - int(base[:4],16)) // userint
+    return i
 
 def generate_friends_map(n=1000): 
     rng = list(range(n))
@@ -49,9 +69,6 @@ def generate_friends_map(n=1000):
         mp.append(random.sample(rng[:i]+rng[i+1:], random.choice(rng)//20))
     with open("mp.json","w") as f:
         json.dump({"map":mp},f)
-
-with open("mp.json","r") as f:
-    friend_map = json.load(f)["map"]
 
 def token_required(f):
     @wraps(f)
@@ -100,7 +117,7 @@ def authenticate():
 
 @token_required
 @limiter.limit("10/minute")
-@app.route("/api/data/from/:from/to/:to")
+@app.route("/api/data/from/:from/to/:to", methods = ["GET"])
 def data(username, frm, to):
     if abs(frm - to) > 100:
         return {"Error": "Too much data requested"}, 400
@@ -112,7 +129,7 @@ def data(username, frm, to):
 
 @token_required
 @limiter.limit("10/minute")
-@app.route("/api/snackpass/submit", method = ["POST"])
+@app.route("/api/snackpass/submit", methods = ["POST"])
 def snack_pass_receipt(username):
     try:
         body = request.json
@@ -128,15 +145,27 @@ def snack_pass_receipt(username):
 
 @token_required
 @limiter.limit("10/minute")
-@app.route("/api/bereal/suggestion", method = ["GET"])
+@app.route("/api/bereal/suggestion", methods = ["GET"])
 def bereal_friend_suggestion(username):
     ids = request.args.get("ids").split(",")
+    suggestions = set()
     for id in ids:
         if id != "":
-            pass # TODO
+            i = get_bereal_id_to_i(id)
+            if i >= 0 and i < len(friend_map):
+                suggestions.update(friend_map[i])
+    
+    # Make people do one id in each request
+    suggestions = random.sample(list(suggestions),len(suggestions)//len(ids))
+    return {"Suggestions": suggestions}
 
+@token_required
+@limiter.limit("10/minute")
+@app.route("/api/bereal/myid", methods = ["GET"])
+def bereal_myid(username):
+    return {"ID": get_bereal_i_to_id(100)}
 
-@app.route("/api")
+@app.route("/api", methods = ["GET"])
 @limiter.limit("10/minute")
 def helloworld():
   return "Hello World"
