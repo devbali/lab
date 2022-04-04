@@ -64,6 +64,7 @@ def get_bereal_id_to_i (username, id):
     return i
 
 usernamebase = Hash("Angoor Khatte Hain")
+
 def get_bereal_username_to_i (username, id):
     try:
         user_i = usernames.index(id.upper())
@@ -235,5 +236,5 @@ def serve(path):
     else:
         return send_from_directory(app.static_folder, 'index.html')
 
-#if __name__ == "__main__":
-  #app.run(debug=True)
+if __name__ == "__main__":
+  app.run(debug=True)
