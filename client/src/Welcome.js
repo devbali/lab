@@ -1,7 +1,8 @@
 
 import * as React from 'react';
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button, Typography, Toolbar, Box, AppBar } from '@mui/material';
+import { getToken } from "./inMemoryJWT"
 
 function LandingFrame({children}) {
     const style = {
@@ -43,7 +44,7 @@ function LandingFrameMessage() {
 }
 
 
-function MenuBar() {
+export function MenuBar() {
   return (
     <Box sx={{ flexGrow: 1 }}>
       <AppBar color="secondary" position="static">
@@ -59,6 +60,17 @@ function MenuBar() {
 }
 
 const Welcome = () => {
+    const navigate = useNavigate();
+
+    getToken().then(
+        (token) => {
+            if (token != null) {
+                navigate("/dashboard");
+            }
+        }
+        
+    );
+    
     return (<div>
         <LandingFrame>
             <MenuBar/>

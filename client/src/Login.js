@@ -4,7 +4,7 @@ import Avatar from '@mui/material/Avatar';
 import Button from '@mui/material/Button';
 import CssBaseline from '@mui/material/CssBaseline';
 import TextField from '@mui/material/TextField';
-import {Link} from "react-router-dom";
+import {Link, useNavigate} from "react-router-dom";
 import Grid from '@mui/material/Grid';
 import Box from '@mui/material/Box';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
@@ -13,7 +13,8 @@ import Container from '@mui/material/Container';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import {useFormik} from 'formik'
 import * as Yup from 'yup'
-
+import {MenuBar} from "./Welcome"
+import { inMemoryJWTManager } from './inMemoryJWT';
 
 const SignupSchema = Yup.object().shape({  
     id: Yup.number("Must be a number")
@@ -35,6 +36,8 @@ const SigninSchema = Yup.object().shape({
 const theme = createTheme();
 
 export function Signin() {
+  const navigate = useNavigate();
+  let [error, setError] = useState("");
   const formik = useFormik({
     initialValues: {
       id: '',
@@ -42,13 +45,26 @@ export function Signin() {
     },
     validationSchema: SigninSchema,
     onSubmit: (values) => {
-      console.log(JSON.stringify(values, null, 2));
-    },
+        fetch('/api/authenticate?' + new URLSearchParams({
+            username: values.id,
+            password: values.password
+        }))
+        .then(res => res.json())
+        .then(res => {
+            if (res.Token != undefined) {
+                inMemoryJWTManager().setToken(res.Token);
+                navigate("/dashboard");
+            } else {
+                setError("Incorrect Credentials!")
+            }
+        })
+      },
   });
 
   return (
     <ThemeProvider theme={theme}>
-      <Container component="main" maxWidth="xs">
+      <Container component="main">
+        <MenuBar/>
         <CssBaseline />
         <Box
           sx={{
@@ -106,6 +122,11 @@ export function Signin() {
                   Forgot password?
                 </Link>
               </Grid>
+              <Grid item xs>
+                <p style={{color: "red"}}>
+                  {error}
+                </p>
+              </Grid>
             </Grid>
           </Box>
         </Box>
@@ -120,15 +141,24 @@ export function Signup() {
       initialValues: {
         id: ''
       },
-      validationSchema: SigninSchema,
+      validationSchema: SignupSchema,
       onSubmit: (values) => {
-        console.log(JSON.stringify(values, null, 2));
+        fetch('/api/getpassword?' + new URLSearchParams({
+            username: values.id,
+        }))
+        .then(res => res.json())
+        .then(res => {
+            if (res.Password != undefined) {
+                setPassword(`Password: ${res.Password}`);
+            }
+        })
       },
     });
   
     return (
       <ThemeProvider theme={theme}>
-        <Container component="main" maxWidth="xs">
+        <Container component="main">
+          <MenuBar/>
           <CssBaseline />
           <Box
             sx={{

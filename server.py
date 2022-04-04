@@ -119,7 +119,7 @@ def token_required(f):
 def forgotpassword():
     try:
         username = request.args.get("username")
-        return get_password(username)
+        return {"Password": get_password(username)}, 200
     except:
         return {"Error": "Can not get password"}, 400
 
@@ -135,18 +135,29 @@ def authenticate():
     if "username" in body and "password" in body:
         if get_password(body["username"]) != body["password"]:
             return error_message
+        username = body["username"]
 
     elif "jwt" in cookies:
-            giventoken = jwt.decode(cookies.get('jwt'), "")
+            giventoken = jwt.decode(cookies.get('jwt'), "", algorithms='HS256')
             if "username" not in giventoken:
                 return error_message
+            else: 
+                username = giventoken["username"]
     else:
         return error_message
 
-    token = jwt.encode(get_jwt(body["username"], get_password(body["username"])), "")
-    r = Response()
-    r.set_cookie(key='jwt',value=token, httponly=True)
-    return {"Token": token}
+    token = jwt.encode(get_jwt(username, get_password(username)), "")
+
+    r = app.make_response({"Token": token})
+    r.set_cookie(key='jwt',value=token, httponly=True, samesite="Strict")
+    return r
+
+@limiter.limit("10/minute")
+@app.route("/api/logout", methods = ["GET"])
+def logout():
+    r = app.make_response({"Message": "Success"})
+    r.delete_cookie("jwt")
+    return r
 
 @limiter.limit("10/minute")
 @app.route("/api/data/from/<frm>/to/<to>", methods = ["GET"])
