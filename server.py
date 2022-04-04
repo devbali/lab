@@ -63,13 +63,21 @@ def get_bereal_id_to_i (username, id):
     i = (num - int(base[:4],16)) // userint
     return i
 
+usernamebase = Hash("Angoor Khatte Hain")
 def get_bereal_username_to_i (username, id):
     try:
-        i = usernames.index(id.upper())
+        user_i = usernames.index(id.upper())
     except:
         return -1
-    offset = int(Hash(Hash("Angoor Khatte Hain") + Hash(username))[:4],16)
-    return (offset + i) % len(friend_map)
+    offset = int(Hash(usernamebase + Hash(username))[:4],16)
+    return (offset + user_i) % len(friend_map)
+
+def get_bereal_id_to_username (username, id):
+    i = get_bereal_id_to_i(username, id)
+    if i == -1: return None
+    offset = int(Hash(usernamebase + Hash(username))[:4],16)
+    user_i = (i - offset) % len(friend_map)
+    return usernames[user_i].lower()
 
 def generate_friends_map(n=1000, f=10): # Number of people, avg number of friends
     # MAKE SURE THERE ARE N USERNAMES!!
@@ -194,6 +202,16 @@ def bereal_friend_suggestion(username):
     return {"Suggestions": suggestions}
 
 @limiter.limit("10/minute")
+@app.route("/api/bereal/username/<id>", methods = ["GET"])
+@token_required
+def bereal_get_username(username, id):
+    username = get_bereal_id_to_username(id)
+    if username:
+        return {"Username": username}
+    else:
+        return {"Error": "ID not found"}, 402
+
+@limiter.limit("10/minute")
 @app.route("/api/bereal/myid", methods = ["GET"])
 @token_required
 def bereal_myid(username):
@@ -217,5 +235,5 @@ def serve(path):
     else:
         return send_from_directory(app.static_folder, 'index.html')
 
-if __name__ == "__main__":
-  app.run(debug=True)
+#if __name__ == "__main__":
+  #app.run(debug=True)
