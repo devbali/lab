@@ -13,8 +13,7 @@ app = Flask(__name__, static_folder='client/build')
 limiter = Limiter(app, key_func=get_remote_address)
 
 def Hash (string):
-    return hashlib.sha256(bytes(string, "utf-8")).hexdigest()
-
+    return hashlib.sha256(bytes(str(string), "utf-8")).hexdigest()
 
 def get_password (username):
     return Hash(Hash("Inquilaab Zindabaad") + Hash(username))
@@ -33,14 +32,17 @@ def get_generic_data (username, frm, to):
 
 def get_snackpass_receipt_id (username, total):
     iv = Hash(random.randbytes(16))
-    # Different id each time but verifiable that the total was 0
-    return iv + Hash(iv + Hash(username) + Hash(total))
+    # Different id each time but verifiable that the total was $1
+    return iv + Hash(Hash("Hindi Cheeni Bhai Bhai") + iv + Hash(username) + Hash(total))
 
 with open("mp.json","r") as f:
     friend_map = json.load(f)["map"]
 
 with open("fernet_key.txt","rb") as f:
     fernet = Fernet(f.read())
+
+with open("usernames.txt","r") as f:
+    usernames = f.read().split("\n")
 
 base = Hash("Satyameva Jayate")
 
@@ -49,24 +51,36 @@ def get_bereal_i_to_id (username, i):
     # Only 0 is same for every user, can tell them to find a specific id corresponding to 0 in spec
     # Every other index depends on username (multiplied by some deterministic "userint")
     num = bytes(str(int(base[:4],16) + userint * i), "utf-8")
-    return f.encrypt().decode()
+    return fernet.encrypt(num).decode()
 
 def get_bereal_id_to_i (username, id):
     userint = int(Hash(base + Hash(username))[:4],16)
     try:
-        num = int(f.decrypt(id))
+        num = int(fernet.decrypt(bytes(id, "utf-8")))
     except:
         return -1
     
     i = (num - int(base[:4],16)) // userint
     return i
 
-def generate_friends_map(n=1000): 
+def get_bereal_username_to_i (username, id):
+    try:
+        i = usernames.index(id.upper())
+    except:
+        return -1
+    offset = int(Hash(Hash("Angoor Khatte Hain") + Hash(username))[:4],16)
+    return (offset + i) % len(friend_map)
+
+def generate_friends_map(n=1000, f=10): # Number of people, avg number of friends
+    # MAKE SURE THERE ARE N USERNAMES!!
     rng = list(range(n))
-    mp = []
-    for i in range(n):
-    # Choose arbitrary sample of upto half of the entire network to be any user's friend
-        mp.append(random.sample(rng[:i]+rng[i+1:], random.choice(rng)//20))
+    mp = [[] for i in range(n)]
+    for i in range(n*f):
+        # Choose arbitrary sample of two people to be friends
+        f1, f2 = random.sample(rng, 2)
+        mp[f1].append(f2)
+        mp[f2].append(f1)
+
     with open("mp.json","w") as f:
         json.dump({"map":mp},f)
 
@@ -74,10 +88,9 @@ def token_required(f):
     @wraps(f)
     def decorator(*args, **kwargs):
         error_message = {"Error":'a valid token is missing'}, 403
-        
         if 'x-access-token' in request.headers:
             try:
-                token = jwt.decode(request.headers['x-access-token'])
+                token = jwt.decode(request.headers['x-access-token'], "", algorithms='HS256')
             except:
                 return error_message
 
@@ -92,13 +105,22 @@ def token_required(f):
         return f(token["username"], *args, **kwargs)
     return decorator
 
-@app.route("/api/authenticate", methods=["POST"])
+@app.route("/api/getpassword", methods=["GET"])
+@limiter.limit("10/minute")
+def forgotpassword():
+    try:
+        username = request.args.get("username")
+        return get_password(username)
+    except:
+        return {"Error": "Can not get password"}, 400
+
+@app.route("/api/authenticate", methods=["GET"])
 @limiter.limit("10/minute")
 def authenticate():
     error_message = {"Error":'invalid credentials'}, 403
     cookies = request.cookies
     try:
-        body = request.json
+        body = request.args.to_dict()
     except:
         body = {}
     if "username" in body and "password" in body:
@@ -106,19 +128,27 @@ def authenticate():
             return error_message
 
     elif "jwt" in cookies:
-            token = jwt.decode(cookies.get('jwt'))
-            if "username" not in token:
+            giventoken = jwt.decode(cookies.get('jwt'), "")
+            if "username" not in giventoken:
                 return error_message
     else:
         return error_message
 
-    token = jwt.encode(get_jwt(token["username"], get_password(token["username"])))
-    Response.set_cookie('jwt',token, httponly=True)
+    token = jwt.encode(get_jwt(body["username"], get_password(body["username"])), "")
+    r = Response()
+    r.set_cookie(key='jwt',value=token, httponly=True)
+    return {"Token": token}
 
-@token_required
 @limiter.limit("10/minute")
-@app.route("/api/data/from/:from/to/:to", methods = ["GET"])
+@app.route("/api/data/from/<frm>/to/<to>", methods = ["GET"])
+@token_required
 def data(username, frm, to):
+    try:
+        frm = int(frm)
+        to = int(to)
+    except:
+        return {"Error": "Bounds not integers"}, 400
+
     if abs(frm - to) > 100:
         return {"Error": "Too much data requested"}, 400
 
@@ -127,9 +157,9 @@ def data(username, frm, to):
         "Data": get_generic_data(username, frm, to)
     }
 
-@token_required
 @limiter.limit("10/minute")
 @app.route("/api/snackpass/submit", methods = ["POST"])
+@token_required
 def snack_pass_receipt(username):
     try:
         body = request.json
@@ -143,27 +173,31 @@ def snack_pass_receipt(username):
     else:
         return {"Error": "No items in body"}, 400
 
-@token_required
 @limiter.limit("10/minute")
 @app.route("/api/bereal/suggestion", methods = ["GET"])
+@token_required
 def bereal_friend_suggestion(username):
-    ids = request.args.get("ids").split(",")
+    ids = request.args.get("usernames")
+    if not ids:
+        return {"Error": "Need at least one id in a comma separated list"}
+    else:
+        ids = ids.split(",")
     suggestions = set()
     for id in ids:
         if id != "":
-            i = get_bereal_id_to_i(id)
-            if i >= 0 and i < len(friend_map):
-                suggestions.update(friend_map[i])
+            i = get_bereal_username_to_i(username, id)
+            if i > 0 and i < len(friend_map):
+                suggestions.update([get_bereal_i_to_id(username, j) for j in friend_map[i]])
     
     # Make people do one id in each request
     suggestions = random.sample(list(suggestions),len(suggestions)//len(ids))
     return {"Suggestions": suggestions}
 
-@token_required
 @limiter.limit("10/minute")
 @app.route("/api/bereal/myid", methods = ["GET"])
+@token_required
 def bereal_myid(username):
-    return {"ID": get_bereal_i_to_id(100)}
+    return {"ID": get_bereal_i_to_id(username,101)}
 
 @app.route("/api", methods = ["GET"])
 @limiter.limit("10/minute")
